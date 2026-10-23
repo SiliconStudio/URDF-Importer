@@ -172,71 +172,85 @@ namespace Unity.Robotics.UrdfImporter
             collisionObject.transform.SetParentAndAlign(parent);
         }
 
-        private static void ConvertMeshToColliders(GameObject gameObject, string location = null, bool setConvex = true)
+    private static void ConvertMeshToColliders(GameObject gameObject, string location = null, bool setConvex = true)
+    {
+        MeshFilter[] meshFilters = gameObject.GetComponentsInChildren<MeshFilter>();
+        if (UrdfRobotExtensions.importsettings.convexMethod == ImportSettings.convexDecomposer.unity)
         {
-            MeshFilter[] meshFilters = gameObject.GetComponentsInChildren<MeshFilter>();
-            if (UrdfRobotExtensions.importsettings.convexMethod == ImportSettings.convexDecomposer.unity)
+            foreach (MeshFilter meshFilter in meshFilters)
             {
-                foreach (MeshFilter meshFilter in meshFilters)
-                {
-                    GameObject child = meshFilter.gameObject;
-                    MeshCollider meshCollider = child.AddComponent<MeshCollider>();
-                    meshCollider.sharedMesh = meshFilter.sharedMesh;
+                GameObject child = meshFilter.gameObject;
+                MeshCollider meshCollider = child.AddComponent<MeshCollider>();
+                meshCollider.sharedMesh = meshFilter.sharedMesh;
+                meshCollider.convex = setConvex;
 
-                    meshCollider.convex = setConvex;
-
-                    Object.DestroyImmediate(child.GetComponent<MeshRenderer>());
-                    Object.DestroyImmediate(meshFilter);
-                }
-            }
-            else
-            {
-                string templateFileName = "";
-                string filePath = "";
-                int meshIndex = 0;
-                if (!RuntimeUrdf.IsRuntimeMode() && location != null)
-                {
-                    string meshFilePath = UrdfAssetPathHandler.GetRelativeAssetPathFromUrdfPath(location, false);
-                    templateFileName = Path.GetFileNameWithoutExtension(meshFilePath);
-                    filePath = Path.GetDirectoryName(meshFilePath);
-                }
-
-                foreach (MeshFilter meshFilter in meshFilters)
-                {                  
-                    GameObject child = meshFilter.gameObject;
-                    VHACD decomposer = child.AddComponent<VHACD>();
-                    List<Mesh> colliderMeshes = decomposer.GenerateConvexMeshes(meshFilter.sharedMesh);
-                    foreach (Mesh collider in colliderMeshes)
-                    {
-                        var c = collider;
-                        if (!RuntimeUrdf.IsRuntimeMode())
-                        {
-                            meshIndex++;
-                            string name = $"{filePath}/{templateFileName}_{meshIndex}.asset";
-                            // Only create new asset if one doesn't exist or should overwrite
-                            if ((UrdfRobotExtensions.importsettings.OverwriteExistingPrefabs || !RuntimeUrdf.AssetExists(name)) && !s_CreatedAssetNames.Contains(name))
-                            {
-                                Debug.Log($"Creating new mesh file: {name}");
-                                RuntimeUrdf.AssetDatabase_CreateAsset(c, name);
-                                RuntimeUrdf.AssetDatabase_SaveAssets();
-                                s_CreatedAssetNames.Add(name);
-                                s_UsedTemplateFiles.Add(templateFileName);
-                            }
-                            else
-                            {
-                                c = RuntimeUrdf.AssetDatabase_LoadAssetAtPath<Mesh>(name);
-                            }
-                        }
-                        MeshCollider current = child.AddComponent<MeshCollider>();
-                        current.sharedMesh = c;
-                        current.convex = setConvex;
-                    }
-                    Component.DestroyImmediate(child.GetComponent<VHACD>());
-                    Object.DestroyImmediate(child.GetComponent<MeshRenderer>());
-                    Object.DestroyImmediate(meshFilter);
-                }
+                Object.DestroyImmediate(child.GetComponent<MeshRenderer>());
+                Object.DestroyImmediate(meshFilter);
             }
         }
+        else
+        {
+            string templateFileName = "";
+            string filePath = "";
+            int meshIndex = 0;
+
+            if (!RuntimeUrdf.IsRuntimeMode() && location != null)
+            {
+                string meshFilePath = UrdfAssetPathHandler.GetRelativeAssetPathFromUrdfPath(location, false);
+                templateFileName = Path.GetFileNameWithoutExtension(meshFilePath);
+                filePath = Path.GetDirectoryName(meshFilePath);
+            }
+
+            foreach (MeshFilter meshFilter in meshFilters)
+            {
+                GameObject child = meshFilter.gameObject;
+                Mesh sourceMesh = meshFilter.sharedMesh;
+
+                if (sourceMesh == null)
+                {
+                    Debug.LogError($"[URDF][VHACD] Missing source mesh: Object={child.name}, STL={location}");
+                    continue;
+                }
+
+                Debug.Log($"[URDF][VHACD] Processing: Object={child.name}, Mesh={sourceMesh.name}, Vertices={sourceMesh.vertexCount}, Triangles={sourceMesh.triangles.Length / 3}");
+
+                VHACD decomposer = child.AddComponent<VHACD>();
+                List<Mesh> colliderMeshes = decomposer.GenerateConvexMeshes(sourceMesh);
+
+                foreach (Mesh collider in colliderMeshes)
+                {
+                    var c = collider;
+                    if (!RuntimeUrdf.IsRuntimeMode())
+                    {
+                        meshIndex++;
+                        string name = $"{filePath}/{templateFileName}_vhacd_{meshIndex}.asset";
+
+                        // Only create new asset if one doesn't exist or should overwrite
+                        if ((UrdfRobotExtensions.importsettings.OverwriteExistingPrefabs || !RuntimeUrdf.AssetExists(name)) && !s_CreatedAssetNames.Contains(name))
+                        {
+                            Debug.Log($"[URDF]: Creating new mesh file: {name}");
+                            RuntimeUrdf.AssetDatabase_CreateAsset(c, name);
+                            RuntimeUrdf.AssetDatabase_SaveAssets();
+                            s_CreatedAssetNames.Add(name);
+                            s_UsedTemplateFiles.Add(templateFileName);
+                        }
+                        else
+                        {
+                            c = RuntimeUrdf.AssetDatabase_LoadAssetAtPath<Mesh>(name);
+                        }
+                    }
+
+                    MeshCollider current = child.AddComponent<MeshCollider>();
+                    current.sharedMesh = c;
+                    current.convex = setConvex;
+                }
+
+                Component.DestroyImmediate(child.GetComponent<VHACD>());
+                Object.DestroyImmediate(child.GetComponent<MeshRenderer>());
+                Object.DestroyImmediate(meshFilter);
+            }
+        }
+    }
 
         public static void BeginNewUrdfImport()
         {
