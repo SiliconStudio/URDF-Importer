@@ -89,10 +89,23 @@ namespace Unity.Robotics.UrdfImporter
             for (int i = 0; i < meshes.Length; i++)
             {
                 string meshAssetPath = GetMeshAssetPath(stlFile, i);
-                RuntimeUrdf.AssetDatabase_CreateAsset(meshes[i], meshAssetPath);
+                Mesh existingMesh = RuntimeUrdf.AssetDatabase_LoadAssetAtPath<Mesh>(meshAssetPath);
+
+                if (existingMesh != null)
+                {
+                    Debug.Log($"[URDF][STL] ReuseMesh: Path={meshAssetPath}");
+                }
+                else
+                {
+                    RuntimeUrdf.AssetDatabase_CreateAsset(meshes[i], meshAssetPath);
+                    Debug.Log($"[URDF][STL] CreateMesh: Path={meshAssetPath}");
+                }
+
                 GameObject gameObject = CreateStlGameObject(meshAssetPath, material);
                 gameObject.transform.SetParent(parent.transform, false);
             }
+
+            Debug.Log($"[URDF][STL] Complete: File={Path.GetFileName(stlFile)}, MeshCount={meshes.Length}");
             return parent;
         }
         
