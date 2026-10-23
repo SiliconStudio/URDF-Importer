@@ -238,17 +238,47 @@ public static class RuntimeUrdf
     public static bool AssetExists(string assetPath, bool ignoreCase = false)
     {
 #if UNITY_EDITOR
-        string[] foldersToSearch = {Path.GetDirectoryName(assetPath)};
-        var assetName = Path.GetFileNameWithoutExtension(assetPath);
-        foreach (var guid2 in AssetDatabase_FindAssets(assetName, foldersToSearch))
+        if (IsRuntimeMode() || string.IsNullOrEmpty(assetPath))
+            return false;
+
+        string normalizedPath = assetPath.Replace('\\', '/');
+        StringComparison comparison = ignoreCase ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        bool exists = false;
+
+        // Check the asset directly using its normalized Unity asset path.
+        UnityEngine.Object asset = AssetDatabase.LoadMainAssetAtPath(normalizedPath);
+        if (asset != null)
         {
-            var possiblePath = RuntimeUrdf.AssetDatabase_GUIDToAssetPath(guid2);
-            if (string.Equals(possiblePath, assetPath, ignoreCase ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
+            string actualPath = AssetDatabase.GetAssetPath(asset).Replace('\\', '/');
+            exists = string.Equals(actualPath, normalizedPath, comparison);
+        }
+
+        // Fallback for case-insensitive lookup.
+        if (!exists && ignoreCase)
+        {
+            string folder = Path.GetDirectoryName(normalizedPath)?.Replace('\\', '/');
+            string assetName = Path.GetFileNameWithoutExtension(normalizedPath);
+
+            if (!string.IsNullOrEmpty(folder) && AssetDatabase.IsValidFolder(folder))
             {
-                return true;
+                foreach (string guid in AssetDatabase.FindAssets(assetName, new[] { folder }))
+                {
+                    string possiblePath = AssetDatabase.GUIDToAssetPath(guid).Replace('\\', '/');
+                    if (string.Equals(possiblePath, normalizedPath, comparison))
+                    {
+                        exists = true;
+                        break;
+                    }
+                }
             }
         }
-#endif
+
+        if (normalizedPath.EndsWith(".prefab", StringComparison.OrdinalIgnoreCase))
+         Debug.Log($"[URDF][AssetExists] Path={normalizedPath}, Exists={exists}, IgnoreCase={ignoreCase}");
+
+        return exists;
+#else
         return false;
-    }    
+#endif
+    }
 }
